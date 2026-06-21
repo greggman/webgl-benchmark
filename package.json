@@ -15,10 +15,10 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "esbuild": "^0.25.0",
-    "globals": "^14.0.0",
+    "esbuild": "^0.28.1",
+    "globals": "^17.6.0",
     "gts": "^7.0.0",
-    "puppeteer": "^24.0.0",
-    "typescript": "^5.7.0"
+    "puppeteer": "^25.1.0",
+    "typescript": "^6.0.3"
   }
 }
