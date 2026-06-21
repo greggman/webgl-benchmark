@@ -1,0 +1,24 @@
+{
+  "name": "webgl-benchmark",
+  "version": "1.0.0",
+  "description": "A browser benchmark suite that measures the performance of the WebGL implementation (API/driver overhead), not the GPU.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/dev.mjs",
+    "serve": "node scripts/serve.mjs",
+    "test": "node --test 'test/*.test.mjs'",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "fix": "eslint . --fix",
+    "baseline": "node test/baseline.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "globals": "^14.0.0",
+    "gts": "^7.0.0",
+    "puppeteer": "^24.0.0",
+    "typescript": "^5.7.0"
+  }
+}

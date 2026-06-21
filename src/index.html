@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebGL Benchmark</title>
+    <base href="%BASE%/" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>WebGL Benchmark</h1>
+      <p class="tagline">
+        Measures the speed of the <strong>WebGL implementation</strong> — API call,
+        state-change, and upload overhead — not the raw speed of the GPU.
+      </p>
+    </header>
+
+    <main id="app">
+      <noscript>This benchmark requires JavaScript.</noscript>
+    </main>
+
+    <canvas id="gl" width="320" height="240" aria-label="benchmark output"></canvas>
+
+    <footer>
+      <p>
+        Scores are normalized so ~1000 matches a reference machine; higher is better.
+        Overall score is the geometric mean of the per-benchmark scores.
+      </p>
+    </footer>
+
+    <script type="module" src="main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "draw": 6000000,
+  "drawElements": 5500000,
+  "drawInstanced": 5000000,
+  "multiDraw": 40000000,
+  "uniformUpdates": 9000000,
+  "uboUpdates": 2500000,
+  "bindTextureSwitch": 4000000,
+  "useProgramSwitch": 2200000,
+  "bindVAOSwitch": 3500000,
+  "vertexAttribSetup": 2800000,
+  "stateChange": 3000000,
+  "viewportScissor": 3800000,
+  "fboSwitch": 1500000,
+  "bufferSubDataSmall": 6500000,
+  "bufferSubDataBig": 9000,
+  "texSubImageSmall": 3500000,
+  "texSubImageBig": 30000,
+  "texImageFromDOM": 120000,
+  "readPixelsSync": 90000,
+  "asyncReadback": 700000,
+  "syncRoundTrip": 250000
+}
