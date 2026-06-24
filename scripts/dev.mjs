@@ -1,6 +1,6 @@
 import {createContext} from './build.mjs';
 import {serve} from './serve.mjs';
-import {mkdir, cp, readFile, writeFile, watch} from 'node:fs/promises';
+import {mkdir, cp, watch} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -10,11 +10,9 @@ const dist = resolve(root, 'dist');
 
 await mkdir(dist, {recursive: true});
 
-// Copy static assets (html/css) into dist, rewriting the base path placeholder.
+// Copy static assets (html/css) into dist verbatim — asset paths are relative.
 async function copyStatic() {
-  let html = await readFile(resolve(root, 'src/index.html'), 'utf8');
-  html = html.replaceAll('%BASE%', '');
-  await writeFile(resolve(dist, 'index.html'), html);
+  await cp(resolve(root, 'src/index.html'), resolve(dist, 'index.html'));
   await cp(resolve(root, 'src/style.css'), resolve(dist, 'style.css'));
 }
 

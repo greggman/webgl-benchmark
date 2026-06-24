@@ -1,5 +1,5 @@
 import esbuild from 'esbuild';
-import {mkdir, cp, rm, readFile, writeFile} from 'node:fs/promises';
+import {mkdir, cp, rm} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -9,10 +9,6 @@ const dist = resolve(root, 'dist');
 
 const prod =
   process.env.NODE_ENV === 'production' || process.argv.includes('--prod');
-
-// GitHub Pages serves the site from a subpath (/<repo>/). Set BASE_PATH in CI to
-// rewrite asset URLs. Locally it stays "" so the dev server serves from root.
-const basePath = process.env.BASE_PATH ?? '';
 
 export async function buildOnce() {
   await rm(dist, {recursive: true, force: true});
@@ -29,11 +25,10 @@ export async function buildOnce() {
     logLevel: 'info',
   });
 
-  // index.html with base path rewritten in.
-  let html = await readFile(resolve(root, 'src/index.html'), 'utf8');
-  html = html.replaceAll('%BASE%', basePath);
-  await writeFile(resolve(dist, 'index.html'), html);
-
+  // Static assets are copied verbatim. All asset paths in index.html are
+  // document-relative, so the site works from any URL depth (incl. the GitHub
+  // Pages /<repo>/ subpath) with no base-path rewriting.
+  await cp(resolve(root, 'src/index.html'), resolve(dist, 'index.html'));
   await cp(resolve(root, 'src/style.css'), resolve(dist, 'style.css'));
 
   return dist;
@@ -52,7 +47,7 @@ export async function createContext() {
   });
 }
 
-export {root, dist, basePath};
+export {root, dist};
 
 // Run directly: one-shot build.
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -29,10 +29,9 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
-      - name: Build (with Pages base path)
+      - name: Build
         env:
           NODE_ENV: production
-          BASE_PATH: /${{ github.event.repository.name }}
         run: npm run build
       - name: Smoke test (Puppeteer)
         run: npm test
