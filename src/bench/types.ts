@@ -22,14 +22,6 @@ export interface Benchmark {
   dispose(): void;
 }
 
-// One measurement window's worth of data.
-export interface Window {
-  frames: number;
-  count: number;
-  cpuMsTotal: number; // summed CPU time across the window's frames
-  opsPerSec: number;
-}
-
 export type BenchStatus = 'ok' | 'skipped' | 'error';
 
 export interface BenchResult {
@@ -38,11 +30,10 @@ export interface BenchResult {
   status: BenchStatus;
   reason?: string; // why skipped / error message
   count: number; // ops per frame chosen by calibration
-  opsPerSec: number; // median window throughput
-  cpuMsPerFrame: number; // median per-frame CPU time
-  gpuMsPerFrame: number | null; // from timer query, if available
+  frames: number; // total frames measured
+  opsPerSec: number; // median window throughput (ops / wall-clock, pipe kept full)
+  cpuMsPerFrame: number; // median per-frame CPU issue time (informational)
   noise: number; // coefficient of variation across kept windows
-  gpuBoundSuspect: boolean; // gpu time ~= cpu frame time
   score: number; // normalized vs baseline (filled in by scoring)
 }
 
@@ -66,32 +57,29 @@ export interface RunData {
 // Knobs for the runner; the test harness uses a fast profile.
 export interface RunnerConfig {
   warmupFrames: number;
-  calibrateTargetMs: number; // aim per-frame CPU *issue* time during calibration
-  gpuBudgetMs: number; // cap per-frame real (GPU-synced) time; bounds the count
-  calibrateSamples: number; // frames median'd per calibration step
-  calibrateMaxCount: number; // hard ceiling on the per-frame op count
-  windows: number; // measurement windows (first is dropped)
-  framesPerWindow: number;
+  calibrateTargetMs: number; // grow count until one frame costs this much CPU to issue
+  minCount: number; // smallest per-frame op count
+  maxCount: number; // largest per-frame op count
+  measureWindows: number; // measurement windows (first is dropped as settle)
+  measureWindowMs: number; // wall-clock duration of each window
 }
 
 export const DEFAULT_CONFIG: RunnerConfig = {
   warmupFrames: 10,
   calibrateTargetMs: 8,
-  gpuBudgetMs: 20,
-  calibrateSamples: 3,
-  calibrateMaxCount: 1 << 18, // 256k — ultimate safety net
-  windows: 5,
-  framesPerWindow: 20,
+  minCount: 16,
+  maxCount: 1 << 18, // 256k
+  measureWindows: 6, // median of 5 after dropping the first
+  measureWindowMs: 120,
 };
 
-// Fast profile for CI/Puppeteer: small counts and few frames so the whole suite
-// finishes quickly even under software rendering (SwiftShader).
+// Fast profile for CI/Puppeteer: small counts and short windows so the whole
+// suite finishes quickly even under software rendering (SwiftShader).
 export const FAST_CONFIG: RunnerConfig = {
-  warmupFrames: 2,
-  calibrateTargetMs: 2,
-  gpuBudgetMs: 15,
-  calibrateSamples: 2,
-  calibrateMaxCount: 1 << 14,
-  windows: 2,
-  framesPerWindow: 8,
+  warmupFrames: 3,
+  calibrateTargetMs: 3,
+  minCount: 8,
+  maxCount: 1 << 13,
+  measureWindows: 3,
+  measureWindowMs: 40,
 };

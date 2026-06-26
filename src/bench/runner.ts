@@ -1,17 +1,28 @@
+// The benchmark runner: for each benchmark, init -> warmup -> calibrate -> measure.
+//
+// We measure how FAST the WebGL implementation sustains API calls, not how long the
+// GPU takes to finish. The reported rate is ops over wall-clock time while keeping
+// the pipe full — the standard "frames in flight" pattern: at most IN_FLIGHT frames
+// are queued ahead of the GPU (backpressure via fence sync objects), and we never
+// drain mid-window. Keeping the pipe full means we measure sustained throughput, NOT
+// per-frame start+stop latency — that distinction is the whole point. (It's also why
+// we do NOT readPixels/finish() per frame to "sync", and why there are no GPU timer
+// queries: both would measure drain latency, not throughput.)
+
 import type {
   Benchmark,
   BenchContext,
   BenchResult,
   RunnerConfig,
 } from './types.js';
-import {
-  now,
-  median,
-  coefficientOfVariation,
-  createGpuTimer,
-} from '../gl/timing.js';
+import {now, median, coefficientOfVariation} from '../gl/timing.js';
 import {checkError} from '../gl/context.js';
-import type {GLEnv} from '../gl/context.js';
+
+// How many frames may be in flight at once. 2-3 is what real engines use; it keeps
+// the pipe full without letting the GPU queue grow unbounded.
+const IN_FLIGHT = 3;
+// Safety cap so a stalled clock can never loop forever within one window.
+const MAX_WINDOW_FRAMES = 200_000;
 
 export interface ProgressEvent {
   benchId: string;
@@ -40,99 +51,125 @@ function nextFrame(): Promise<void> {
   return new Promise(resolve => requestAnimationFrame(() => resolve()));
 }
 
-// Force the GPU to actually finish the work issued so far, then return.
-//
-// WebGL's finish() is NOT enough: in Chrome it's a "shallow" finish that flushes
-// the command buffer and waits only for the GPU process to ingest the commands —
-// it does not wait for the GPU to execute them. Reading a single pixel does: a
-// readPixels can't return until the framebuffer has actually been rendered, so it
-// blocks on a real GPU round-trip. We bind the default framebuffer first so the
-// read is always from a readable RGBA8 surface regardless of what the bench left
-// bound.
-const SYNC_PX = new Uint8Array(4);
-function gpuSync(gl: WebGL2RenderingContext): void {
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, SYNC_PX);
+// Insert a fence marking "the GPU has finished everything issued so far".
+function fence(gl: WebGL2RenderingContext): WebGLSync | null {
+  return gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
 }
 
-// Time a single frame: issue the calls, flush, measure CPU wall time around it.
-// During the measurement loop we deliberately do NOT sync — draining the pipe
-// every frame would measure start+stop latency instead of sustained throughput.
-// During calibration we DO sync (block=true): see calibrate() for why.
-function timeFrame(
+// Wait until a fence is signalled, yielding to rAF between polls so the page (and
+// Firefox's refresh driver) stays alive. This is backpressure / settling only — it
+// is never timed, so it does not affect the measured throughput. SYNC_FLUSH_
+// COMMANDS_BIT flushes on the first poll so the fence is guaranteed to progress.
+async function awaitFence(
+  gl: WebGL2RenderingContext,
+  sync: WebGLSync | null,
+): Promise<void> {
+  if (!sync) {
+    await nextFrame();
+    return;
+  }
+  for (;;) {
+    const status = gl.clientWaitSync(sync, gl.SYNC_FLUSH_COMMANDS_BIT, 0);
+    if (status !== gl.TIMEOUT_EXPIRED) {
+      gl.deleteSync(sync);
+      return;
+    }
+    await nextFrame();
+  }
+}
+
+// Drain the GPU between phases (warmup/calibrate/measure) so phases don't bleed
+// into one another. Not part of any timed measurement.
+async function drain(gl: WebGL2RenderingContext): Promise<void> {
+  await awaitFence(gl, fence(gl));
+}
+
+// Time a single frame's CPU issue cost (issue the calls + flush the command
+// buffer). No GPU wait: flush() only kicks the command buffer, it does not block.
+function issueFrame(
   gl: WebGL2RenderingContext,
   bench: Benchmark,
   count: number,
-  block = false,
 ): number {
   const t0 = now();
   bench.runFrame(count);
   gl.flush();
-  if (block) gpuSync(gl);
   return now() - t0;
 }
 
-// Pick a per-frame op count, in two phases.
-//
-// Phase 1 — size by CPU *issue* time (flush only, no GPU sync). The measurement
-// loop also never syncs per frame, so this is the number that puts the measured
-// per-frame CPU time well above the timer's resolution and makes the throughput
-// metric meaningful (rather than quantization noise).
-//
-// Phase 2 — bound by a GPU budget. Some benches are cheap to *issue* but do real
-// GPU work per op (e.g. framebuffer switch + clear + draw). At the issue-sized
-// count from phase 1, one frame's actual GPU work can be enormous, and because the
-// measurement loop never syncs per frame, that work piles up and the page freezes.
-// We measure the real, GPU-synced frame time once (gpuSync — a readPixels
-// round-trip; WebGL finish() would NOT wait for the GPU) and, if it blows the
-// budget, scale the count down to fit. For purely CPU-bound benches the GPU work
-// is tiny, so the budget never bites and the phase-1 count stands.
+// Grow `count` by doubling until issuing one frame costs ~calibrateTargetMs of CPU
+// time. Sizing on issue time (not GPU time) is the whole point: it scales the work
+// so the measurement is comfortably above the clock's resolution, and it is what
+// makes the per-op API cost the thing we measure.
 async function calibrate(
   gl: WebGL2RenderingContext,
   bench: Benchmark,
   config: RunnerConfig,
 ): Promise<number> {
-  const {
-    calibrateTargetMs: targetMs,
-    gpuBudgetMs,
-    calibrateMaxCount: maxCount,
-    calibrateSamples,
-  } = config;
-
-  // Phase 1: grow the count until issuing a frame costs ~targetMs of CPU time.
-  let count = 64;
+  const {calibrateTargetMs: targetMs, minCount, maxCount} = config;
+  let count = minCount;
+  let ms = 0;
   for (let i = 0; i < 24; i++) {
-    // Median of a few frames at this count to dodge one-off stalls.
-    const samples: number[] = [];
-    for (let f = 0; f < calibrateSamples; f++) {
-      await nextFrame();
-      samples.push(timeFrame(gl, bench, count));
-    }
-    const ms = median(samples);
-    if (ms >= targetMs || count >= maxCount) break;
-    // Scale toward the target but cap the jump so we don't overshoot wildly.
-    const factor = ms > 0.05 ? Math.min(8, Math.max(2, targetMs / ms)) : 8;
-    count = Math.min(maxCount, Math.ceil(count * factor));
-  }
-
-  // Phase 2: if the real (GPU-synced) frame time at this count blows the budget,
-  // shrink the count to fit so the measurement loop can't flood the GPU.
-  const synced: number[] = [];
-  for (let f = 0; f < calibrateSamples; f++) {
+    // Min of two frames at this count to shrug off a one-off stall.
     await nextFrame();
-    synced.push(timeFrame(gl, bench, count, true));
+    const a = issueFrame(gl, bench, count);
+    const b = issueFrame(gl, bench, count);
+    ms = Math.min(a, b);
+    if (ms >= targetMs || count >= maxCount) break;
+    count = Math.min(count * 2, maxCount);
   }
-  const syncedMs = median(synced);
-  if (syncedMs > gpuBudgetMs) {
-    count = Math.max(64, Math.floor((count * gpuBudgetMs) / syncedMs));
+  // Scale the final count toward the target so we don't sit at a power-of-two edge.
+  if (ms > 0.05) {
+    const scaled = Math.round((count * targetMs) / ms);
+    count = Math.max(minCount, Math.min(maxCount, scaled));
   }
   return count;
+}
+
+interface WindowResult {
+  opsPerSec: number; // ops / wall-clock over the window (pipe kept full)
+  frames: number;
+  cpuPerFrame: number[]; // per-frame CPU issue times (for display only)
+}
+
+// Measure one window: issue frames as fast as we can for ~windowMs of wall time,
+// keeping at most IN_FLIGHT frames in flight (backpressure) so the pipe stays full
+// without unbounded queue growth. The rate is ops over wall-clock time. Because the
+// pipe is kept full (we never drain mid-window), this is sustained throughput, not
+// per-frame start+stop latency — the single end-of-window drain is amortized over
+// many frames. Wall-clock also sidesteps the clock's per-frame resolution: one
+// cheap frame can read 0, but a whole window is always tens of ms.
+async function measureWindow(
+  gl: WebGL2RenderingContext,
+  bench: Benchmark,
+  count: number,
+  windowMs: number,
+  shouldCancel?: () => boolean,
+): Promise<WindowResult> {
+  const cpuPerFrame: number[] = [];
+  const inFlight: Array<WebGLSync | null> = [];
+  let frames = 0;
+  const start = now();
+  do {
+    if (shouldCancel?.()) throw new CancelledError();
+    if (inFlight.length >= IN_FLIGHT) {
+      // Real backpressure: don't get more than IN_FLIGHT ahead of the GPU.
+      await awaitFence(gl, inFlight.shift()!);
+    }
+    cpuPerFrame.push(issueFrame(gl, bench, count));
+    inFlight.push(fence(gl));
+    frames++;
+  } while (now() - start < windowMs && frames < MAX_WINDOW_FRAMES);
+  // Drain the queued frames so the window's full cost is accounted for.
+  for (const f of inFlight) await awaitFence(gl, f);
+  const wallMs = now() - start;
+  const opsPerSec = wallMs > 0 ? (count * frames * 1000) / wallMs : 0;
+  return {opsPerSec, frames, cpuPerFrame};
 }
 
 export async function runBenchmark(
   bench: Benchmark,
   ctx: BenchContext,
-  env: GLEnv,
   config: RunnerConfig,
   index: number,
   total: number,
@@ -160,11 +197,10 @@ export async function runBenchmark(
     name: bench.name,
     status: 'ok',
     count: 0,
+    frames: 0,
     opsPerSec: 0,
     cpuMsPerFrame: 0,
-    gpuMsPerFrame: null,
     noise: 0,
-    gpuBoundSuspect: false,
     score: 0,
   };
 
@@ -177,10 +213,6 @@ export async function runBenchmark(
     };
   }
 
-  // Optional GPU timing to sanity-check that we're not GPU-bound.
-  const timerExt = env.ext('EXT_disjoint_timer_query_webgl2');
-  const gpuTimer = createGpuTimer(gl, timerExt);
-
   try {
     emit('init', 0);
     await bench.init(ctx);
@@ -191,77 +223,54 @@ export async function runBenchmark(
     for (let f = 0; f < config.warmupFrames; f++) {
       if (hooks.shouldCancel?.()) throw new CancelledError();
       await nextFrame();
-      timeFrame(gl, bench, 256);
+      issueFrame(gl, bench, config.minCount);
     }
-    gpuSync(gl);
+    await drain(gl);
 
     emit('calibrate', 0);
     const count = await calibrate(gl, bench, config);
+    await drain(gl);
 
-    // Measure: several windows; drop the first as extra settle time, then take
-    // the median window's throughput. CPU issue time is the implementation cost.
-    //
-    // Each window issues framesPerWindow frames back-to-back (no rAF wait between
-    // them) and times the whole batch with a SINGLE clock read. We can't time
-    // individual frames: a cheap bench (e.g. one multiDraw call) costs less per
-    // frame than performance.now()'s resolution — Chrome coarsens it to ~100µs —
-    // so per-frame deltas read 0 and the throughput would divide by zero. Timing
-    // the batch makes the measured span comfortably larger than the clock's
-    // granularity. The GPU is drained once at the window boundary (not per frame),
-    // so per-window GPU work is bounded (calibration capped per-frame GPU work to
-    // gpuBudgetMs) without measuring start+stop latency per frame.
-    const windowOps: number[] = [];
-    const windowCpuPerFrame: number[] = [];
-    const gpuSamples: number[] = [];
-    for (let w = 0; w < config.windows; w++) {
+    // Measure several short windows and take the median rate. A transient stall (GC,
+    // scheduler, bandwidth contention) mostly slows a single window, so the median
+    // across windows is far more reproducible. The first window is dropped as settle.
+    emit('measure', 0);
+    const windowRates: number[] = [];
+    const cpuSamples: number[] = [];
+    let frames = 0;
+    for (let w = 0; w < config.measureWindows; w++) {
       if (hooks.shouldCancel?.()) throw new CancelledError();
-      await nextFrame(); // align to a fresh frame and let the page breathe
-      const t0 = now();
-      for (let f = 0; f < config.framesPerWindow; f++) {
-        gpuTimer?.begin();
-        bench.runFrame(count);
-        gl.flush();
-        gpuTimer?.end();
-        const g = gpuTimer?.poll();
-        if (typeof g === 'number') gpuSamples.push(g);
-      }
-      const cpuTotal = now() - t0;
-      // Real GPU drain at the window boundary; finish() wouldn't actually wait.
-      gpuSync(gl);
-      emit('measure', (w + 1) / config.windows);
+      await nextFrame();
+      const win = await measureWindow(
+        gl,
+        bench,
+        count,
+        config.measureWindowMs,
+        hooks.shouldCancel,
+      );
+      emit('measure', (w + 1) / config.measureWindows);
       if (w === 0) continue; // drop first window
-      // Floor the denominator as a last-resort guard against an unmeasurable span.
-      const seconds = Math.max(cpuTotal, 1e-3) / 1000;
-      windowOps.push((count * config.framesPerWindow) / seconds);
-      windowCpuPerFrame.push(cpuTotal / config.framesPerWindow);
+      windowRates.push(win.opsPerSec);
+      cpuSamples.push(...win.cpuPerFrame);
+      frames += win.frames;
     }
 
     checkError(gl, `${bench.id}.measure`);
-
-    const opsPerSec = median(windowOps);
-    const cpuMsPerFrame = median(windowCpuPerFrame);
-    const gpuMsPerFrame = gpuSamples.length ? median(gpuSamples) : null;
-    const noise = coefficientOfVariation(windowOps);
-    // If the GPU is busy nearly as long as the CPU frame, the number is suspect.
-    const gpuBoundSuspect =
-      gpuMsPerFrame !== null && gpuMsPerFrame >= cpuMsPerFrame * 0.8;
 
     emit('done', 1);
     return {
       ...base,
       count,
-      opsPerSec,
-      cpuMsPerFrame,
-      gpuMsPerFrame,
-      noise,
-      gpuBoundSuspect,
+      frames,
+      opsPerSec: median(windowRates),
+      cpuMsPerFrame: median(cpuSamples),
+      noise: coefficientOfVariation(windowRates),
     };
   } catch (err) {
     if (err instanceof CancelledError) throw err;
     emit('error', 1, String(err));
     return {...base, status: 'error', reason: String(err)};
   } finally {
-    gpuTimer?.dispose();
     try {
       bench.dispose();
     } catch {

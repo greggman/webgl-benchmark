@@ -18,13 +18,11 @@ function row(r: BenchResult): string {
   if (r.status === 'error') {
     return `<tr><td>${r.name}</td><td colspan="4" class="error">error — ${escapeHtml(r.reason ?? '')}</td></tr>`;
   }
-  const flags: string[] = [];
-  if (r.gpuBoundSuspect) flags.push('GPU-bound?');
-  if (r.noise > 0.15) flags.push(`noisy ±${(r.noise * 100).toFixed(0)}%`);
-  const flagHtml = flags.length
-    ? `<span class="flag"> ${flags.join(' · ')}</span>`
-    : '';
-  const detail = `count ${fmtNum(r.count)} · ${fmtNum(r.opsPerSec)} ops/s · ${r.cpuMsPerFrame.toFixed(2)} ms/frame CPU${r.gpuMsPerFrame !== null ? ` · ${r.gpuMsPerFrame.toFixed(2)} ms GPU` : ''} · noise ±${(r.noise * 100).toFixed(0)}%`;
+  const flagHtml =
+    r.noise > 0.15
+      ? `<span class="flag"> noisy ±${(r.noise * 100).toFixed(0)}%</span>`
+      : '';
+  const detail = `count ${fmtNum(r.count)} · ${fmtNum(r.frames)} frames · ${fmtNum(r.opsPerSec)} ops/s · ${r.cpuMsPerFrame.toFixed(3)} ms/frame issue · noise ±${(r.noise * 100).toFixed(0)}%`;
   return `<tr>
     <td>${r.name}${flagHtml}</td>
     <td class="num">${fmtScore(r.score)}</td>

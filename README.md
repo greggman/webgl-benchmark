@@ -51,28 +51,24 @@ measure**:
 
 - **warmup** runs a few frames so the implementation can lazily compile shaders,
   link programs, and allocate buffers/textures (those timings are discarded).
-- **calibrate** picks a per-frame operation `count` that targets a modest amount of
-  CPU time per frame, keeping the GPU underutilized.
-- **measure** runs several short windows, recording the **CPU time to issue +
-  flush** each frame, and reports the **median** window's operations/second. The
-  first window is dropped as settle time, and each result reports **Noise** (the
+- **calibrate** grows a per-frame operation `count` until issuing one frame costs a
+  modest amount of CPU time — sizing the work to the host so the measurement is well
+  above the clock's resolution.
+- **measure** runs several short windows and reports the **median** window's
+  operations/second, computed as *ops ÷ wall-clock time* while keeping the pipe full.
+  The first window is dropped as settle time, and each result reports **Noise** (the
   coefficient of variation across the kept windows) so you can see how stable a
   number is.
 
-> **Why not `finish()` every frame?** Draining the pipe each frame measures
-> *start + stop* latency, not throughput: every frame runs from an idle GPU and the
-> implementation never gets to pipeline submissions the way a real app does. We
-> only `flush()` per frame and `finish()` at window boundaries.
->
-> Synchronous calls (`readPixels`, `getError`, `getParameter`, `getBufferSubData`)
-> force a GPU-process round-trip and stall the pipeline, so they live **only** in
-> the dedicated round-trip benchmarks (`readPixelsSync`, `asyncReadback`,
-> `syncRoundTrip`) and never inside the throughput benches' hot loops.
-
-When `EXT_disjoint_timer_query_webgl2` is available, each frame is also timed on the
-GPU to confirm we're not GPU-bound; a result is flagged **GPU-bound?** if the GPU is
-busy nearly as long as the CPU frame. The extension is commonly absent (e.g. on many
-macOS/Metal configs), in which case this check is simply skipped.
+> **We measure sustained speed, not drain latency.** Each window keeps the GPU pipe
+> full — the standard **frames-in-flight** pattern: at most a few frames are queued
+> ahead of the GPU (backpressure via `fenceSync`/`clientWaitSync`), and we never
+> drain mid-window. Because the pipe stays full, the rate reflects sustained
+> throughput rather than per-frame start-and-stop latency — like timing a car's top
+> speed, not a standing start through to a full stop. Draining every frame (e.g. with
+> `readPixels` or `finish()`) would measure the wrong thing, so we don't. There are
+> also deliberately **no GPU timer queries** (`EXT_disjoint_timer_query_webgl2`):
+> they're unreliable across implementations and measure drain time, not throughput.
 
 Each benchmark's operations/second is normalized against a baked-in reference
 baseline (`src/ui/baseline.json`) so a score near **1000 matches the reference
@@ -117,5 +113,5 @@ scores meaningful for your setup.
 
 - Requires a browser with **WebGL2** (`navigator.gpu` is *not* used).
 - CI runs the Puppeteer smoke test under SwiftShader, which validates the API path
-  (correctness, not perf). `WEBGL_multi_draw` and the timer-query extension may be
-  absent there, so those benches report as skipped rather than failing.
+  (correctness, not perf). `WEBGL_multi_draw` may be absent there, so that bench
+  reports as skipped rather than failing.

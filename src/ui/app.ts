@@ -164,7 +164,6 @@ export class App {
         const res = await runBenchmark(
           benches[i],
           this.ctx,
-          this.env,
           config,
           i,
           benches.length,
