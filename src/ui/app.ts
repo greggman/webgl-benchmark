@@ -78,13 +78,13 @@ export class App {
           return `<label class="bench-item ${supported ? '' : 'unsupported'}">
             <input type="checkbox" value="${b.id}" ${supported ? 'checked' : 'disabled'} />
             <span>
-              <span class="name">${escapeHtml(b.name)}${badge}</span><br/>
+              <span class="name">${escapeHtml(b.name)}${badge}</span>
               <span class="desc">${escapeHtml(b.description)}</span>
             </span>
           </label>`;
         })
         .join('');
-      return `<h2>${escapeHtml(g.title)}</h2><div class="bench-grid">${items}</div>`;
+      return `<h2 class="bench-section">${escapeHtml(g.title)}</h2><div class="bench-grid">${items}</div>`;
     }).join('');
 
     this.selectEl.innerHTML = `

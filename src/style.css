@@ -1,17 +1,30 @@
 :root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --panel-2: #1f242e;
-  --border: #2c333f;
-  --text: #e6e9ef;
-  --muted: #9aa4b2;
-  --accent: #4ea1ff;
-  --accent-2: #57d9a3;
-  --warn: #f5a623;
-  --bad: #ff6b6b;
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
-    sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --panel: #f8f8f8;
+  --panel-2: #f4f4f4;
+  --border: #ccc;
+  --text: #111;
+  --muted: #665;
+  --accent: #76a9e7;
+  --accent-2: #0f9a60;
+  --warn: #a4701b;
+  --bad: #a01919;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1f242e;
+    --border: #2c333f;
+    --text: #e6e9ef;
+    --muted: #9aa4b2;
+    --accent: #4ea1ff;
+    --accent-2: #57d9a3;
+    --warn: #f5a623;
+    --bad: #ff6b6b;
+  }
 }
 
 * {
@@ -113,17 +126,17 @@ input[type="text"] {
 }
 
 /* Benchmark selection list */
-.bench-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 8px;
+.bench-section {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 16px 0 6px;
 }
 .bench-item {
   display: flex;
   gap: 10px;
-  align-items: flex-start;
-  padding: 10px;
-  border: 1px solid var(--border);
+  align-items: center;
+  padding: 2px;
+  border: 0.5px solid var(--border);
   border-radius: 10px;
   background: var(--panel-2);
 }
@@ -195,7 +208,6 @@ table {
 th,
 td {
   text-align: left;
-  padding: 8px 10px;
   border-bottom: 1px solid var(--border);
 }
 th {
@@ -247,7 +259,7 @@ details.detail pre {
   color: var(--text);
 }
 .run-pill {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
   background: var(--panel-2);
