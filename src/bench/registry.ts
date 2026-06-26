@@ -22,7 +22,6 @@ import {
 } from './benchmarks/texSubImage.js';
 import {makeTexImageFromDOMBench} from './benchmarks/texImageFromDOM.js';
 import {makeReadPixelsSyncBench} from './benchmarks/readPixelsSync.js';
-import {makeAsyncReadbackBench} from './benchmarks/asyncReadback.js';
 import {makeSyncRoundTripBench} from './benchmarks/syncRoundTrip.js';
 
 // Benchmarks grouped for display; order here is the order shown and run.
@@ -70,11 +69,7 @@ export const GROUPS: BenchGroup[] = [
   },
   {
     title: 'Synchronous round-trips',
-    factories: [
-      makeReadPixelsSyncBench,
-      makeAsyncReadbackBench,
-      makeSyncRoundTripBench,
-    ],
+    factories: [makeReadPixelsSyncBench, makeSyncRoundTripBench],
   },
 ];
 

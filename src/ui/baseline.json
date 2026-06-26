@@ -18,6 +18,5 @@
   "texSubImageBig": 30000,
   "texImageFromDOM": 120000,
   "readPixelsSync": 90000,
-  "asyncReadback": 700000,
   "syncRoundTrip": 250000
 }

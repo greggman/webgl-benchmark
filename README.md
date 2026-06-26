@@ -39,7 +39,6 @@ and upload paths.
 | `texSubImageBig` | fewer large (256×256) `texSubImage2D()` uploads |
 | `texImageFromDOM` | repeated upload from a decoded `ImageBitmap` |
 | `readPixelsSync` | synchronous 1×1 `readPixels()` round-trips |
-| `asyncReadback` | non-stalling readback via PBO + `fenceSync` |
 | `syncRoundTrip` | `getError()`/`getParameter()` flush+wait cost |
 
 Benches marked *(ext)* auto-skip when the required extension is missing.
