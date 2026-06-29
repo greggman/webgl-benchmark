@@ -186,6 +186,9 @@ export async function runBenchmark(
   index: number,
   total: number,
   hooks: RunnerHooks,
+  // When provided (a cached count), calibration is skipped and this exact count is
+  // used — so every run does identical work. See ui/counts.ts.
+  fixedCount?: number,
 ): Promise<BenchResult> {
   const {gl} = ctx;
   const emit = (
@@ -244,8 +247,13 @@ export async function runBenchmark(
     }
     await drain(gl);
 
-    emit('calibrate', 0.15);
-    const count = await calibrate(gl, bench, config);
+    let count: number;
+    if (fixedCount !== undefined && fixedCount > 0) {
+      count = fixedCount; // cached — skip calibration so the work is identical
+    } else {
+      emit('calibrate', 0.15);
+      count = await calibrate(gl, bench, config);
+    }
     await drain(gl);
 
     // Warm the ACTUAL measurement workload at the chosen count. The first sustained

@@ -15,6 +15,7 @@ import {
 import {applyScores} from './score.js';
 import {renderResults, escapeHtml} from './results.js';
 import {ComparePanel} from './compare.js';
+import {loadCounts, countsUrl} from './counts.js';
 
 export class App {
   private ctx: BenchContext;
@@ -27,6 +28,11 @@ export class App {
   private cancelRequested = false;
   // Which benchmarks are unsupported on this device (disabled in the UI).
   private supportedIds = new Set<string>();
+  // Fixed per-bench op counts so every run (and every browser build) does identical
+  // work — bundled defaults + optional ?counts= URL override (see counts.ts).
+  private counts: Map<string, number>;
+  // When set, the next run re-calibrates instead of using the fixed counts.
+  private recalibrate = false;
 
   constructor(
     private env: GLEnv,
@@ -38,6 +44,7 @@ export class App {
       env,
       has: n => env.has(n),
     };
+    this.counts = loadCounts();
 
     root.innerHTML = `
       <div id="select" class="panel"></div>
@@ -104,10 +111,13 @@ export class App {
       <div class="toolbar">
         <button id="all">Select all</button>
         <button id="none">Select none</button>
+        <button id="recal" title="Re-pick op counts for this machine on the next run, instead of the fixed ones">Recalibrate</button>
+        <button id="copylink" title="Copy a URL that pins the current op counts — open it in both browser builds you're comparing so they do identical work">Copy link</button>
         <span class="spacer"></span>
         <input id="label" type="text" placeholder="run label (optional)" />
         <button id="run" class="primary">Run selected</button>
-      </div>`;
+      </div>
+      <p class="progress" id="cachenote"></p>`;
 
     const $ = <T extends HTMLElement>(s: string) =>
       this.selectEl.querySelector<T>(s)!;
@@ -123,6 +133,17 @@ export class App {
     $('#none').addEventListener('click', () =>
       boxes().forEach(b => (b.checked = false)),
     );
+    $('#recal').addEventListener('click', () => {
+      this.recalibrate = true;
+      this.updateCacheNote();
+    });
+    $('#copylink').addEventListener('click', () => {
+      void navigator.clipboard?.writeText(countsUrl(this.counts)).then(() => {
+        const note = this.selectEl.querySelector('#cachenote');
+        if (note) note.textContent = 'Copied a link that pins these op counts.';
+      });
+    });
+    this.updateCacheNote();
     $<HTMLButtonElement>('#run').addEventListener('click', () => {
       const ids = boxes()
         .filter(b => b.checked)
@@ -130,6 +151,15 @@ export class App {
       const label = $<HTMLInputElement>('#label').value.trim();
       void this.run(ids, label);
     });
+  }
+
+  // Explain the fixed-count model (so the user knows runs are directly comparable).
+  private updateCacheNote(): void {
+    const note = this.selectEl.querySelector('#cachenote');
+    if (!note) return;
+    note.textContent = this.recalibrate
+      ? 'Next run will recalibrate op counts for this machine. Then use “Copy link” to pin them across both browser builds.'
+      : 'Op counts are fixed (bundled, or from the URL) — every run, and every browser build that loads this page, does identical work.';
   }
 
   private setProgress(html: string): void {
@@ -171,8 +201,12 @@ export class App {
 
     try {
       for (let i = 0; i < benches.length; i++) {
+        const bench = benches[i];
+        // Fixed count unless the user asked to recalibrate (or it's a bench with no
+        // bundled/URL count). undefined → the runner calibrates.
+        const fixed = this.recalibrate ? undefined : this.counts.get(bench.id);
         const res = await runBenchmark(
-          benches[i],
+          bench,
           this.ctx,
           config,
           i,
@@ -181,7 +215,10 @@ export class App {
             onProgress: ev => this.renderProgress(ev, true),
             shouldCancel: () => this.cancelRequested,
           },
+          fixed,
         );
+        // Remember whatever count was actually used so "Copy link" can pin it.
+        if (res.status === 'ok') this.counts.set(bench.id, res.count);
         results.push(res);
       }
     } catch (err) {
@@ -191,6 +228,8 @@ export class App {
         return null;
       }
     }
+
+    this.recalibrate = false;
 
     const overall = applyScores(results);
     const run: RunData = {
@@ -230,6 +269,7 @@ export class App {
   private finish(): void {
     this.running = false;
     this.overlayEl.classList.add('hidden');
+    this.updateCacheNote();
   }
 }
 

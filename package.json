@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "fix": "eslint . --fix",
-    "baseline": "node test/baseline.mjs"
+    "baseline": "node test/baseline.mjs",
+    "counts": "node test/gen-counts.mjs"
   },
   "license": "MIT",
   "devDependencies": {

@@ -54,8 +54,17 @@ measure**:
 
 - **warmup** runs a few frames so the implementation can lazily compile shaders,
   link programs, and allocate buffers/textures (those timings are discarded).
-- **calibrate** grows a per-frame operation `count` until issuing one frame costs a
-  modest amount of CPU time — sizing the work to the host.
+- **count** — how much work each benchmark does per frame is **fixed**, not
+  re-calibrated every run. Re-calibrating was the single biggest source of run-to-run
+  noise (the count landed differently each run, and throughput scales with it). The
+  counts are **bundled into the page** (`src/bench/defaultCounts.json`), so every run
+  — and, crucially, every *browser build* that loads the page — does identical work.
+  That makes A/B comparisons (run build A, run build B, compare) valid. For browser
+  A/B work the page is shared by both builds, but their `localStorage` is not, so the
+  counts deliberately live in the page, not in storage. **Recalibrate** re-picks
+  counts for this machine on the next run; **Copy link** gives you a `?counts=…` URL
+  that pins them — open it in both builds to guarantee identical work. Regenerate the
+  bundled defaults for your machine with `npm run counts`.
 - **measure** keeps the GPU pipe full (a few frames in flight) and runs several
   short **wall-clock windows**, reporting the **median** window's operations/second
   as *ops ÷ wall time, with the work drained (fences) inside the window*. The first
