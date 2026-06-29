@@ -18,5 +18,7 @@
   "texSubImageBig": 30000,
   "texImageFromDOM": 120000,
   "readPixelsSync": 90000,
-  "syncRoundTrip": 250000
+  "syncRoundTrip": 250000,
+  "createDeleteBuffers": 100000,
+  "createDeleteTextures": 60000
 }

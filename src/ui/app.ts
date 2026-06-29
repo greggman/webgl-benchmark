@@ -19,6 +19,7 @@ import {ComparePanel} from './compare.js';
 export class App {
   private ctx: BenchContext;
   private selectEl: HTMLElement;
+  private overlayEl: HTMLElement;
   private progressEl: HTMLElement;
   private resultsEl: HTMLElement;
   private compare: ComparePanel;
@@ -40,14 +41,24 @@ export class App {
 
     root.innerHTML = `
       <div id="select" class="panel"></div>
-      <div id="progress" class="panel hidden"></div>
       <div id="results"></div>
-      <div id="compare"></div>`;
+      <div id="compare"></div>
+      <div id="overlay" class="overlay hidden" role="dialog" aria-label="running benchmarks">
+        <div class="overlay-card">
+          <div id="overlay-canvas"></div>
+          <div id="progress"></div>
+        </div>
+      </div>`;
 
     this.selectEl = root.querySelector('#select')!;
+    this.overlayEl = root.querySelector('#overlay')!;
     this.progressEl = root.querySelector('#progress')!;
     this.resultsEl = root.querySelector('#results')!;
     this.compare = new ComparePanel(root.querySelector('#compare')!);
+
+    // The canvas is only useful while benchmarks run, so it lives inside the overlay
+    // (which is hidden otherwise). Move the page's <canvas> into the overlay card.
+    root.querySelector('#overlay-canvas')!.appendChild(env.canvas);
 
     this.probeSupport();
     this.renderSelection();
@@ -150,8 +161,7 @@ export class App {
     if (this.running || ids.length === 0) return null;
     this.running = true;
     this.cancelRequested = false;
-    this.env.canvas.classList.add('running');
-    this.progressEl.classList.remove('hidden');
+    this.overlayEl.classList.remove('hidden');
     this.resultsEl.innerHTML = '';
     this.renderProgress(null, true);
 
@@ -176,10 +186,8 @@ export class App {
       }
     } catch (err) {
       if (!(err instanceof CancelledError)) {
-        this.setProgress(
-          `<p class="error">Run failed: ${escapeHtml(String(err))}</p>`,
-        );
-        this.finish();
+        this.finish(); // hide the overlay…
+        this.resultsEl.innerHTML = `<div class="panel error">Run failed: ${escapeHtml(String(err))}</div>`;
         return null;
       }
     }
@@ -221,8 +229,7 @@ export class App {
 
   private finish(): void {
     this.running = false;
-    this.env.canvas.classList.remove('running');
-    this.progressEl.classList.add('hidden');
+    this.overlayEl.classList.add('hidden');
   }
 }
 

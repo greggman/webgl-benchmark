@@ -3,15 +3,11 @@ import {buildOnce} from '../scripts/build.mjs';
 import {serve} from '../scripts/serve.mjs';
 import puppeteer from 'puppeteer';
 
-// Flags that give headless Chrome a working WebGL2 even without a real GPU.
-// SwiftShader validates the API path (correctness, not perf).
-const GL_FLAGS = [
-  '--use-gl=angle',
-  '--use-angle=swiftshader',
-  '--enable-unsafe-swiftshader',
-  '--ignore-gpu-blocklist',
-  '--no-sandbox',
-];
+// Use the real GPU. Headless Chrome renders WebGL on the host GPU (macOS CI runners
+// and dev machines have one); we deliberately do NOT fall back to SwiftShader, which
+// is deprecated in Chrome (it now requires --enable-unsafe-swiftshader) and is so
+// slow per frame that the drain-between-frames runner times out under it.
+const GL_FLAGS = ['--ignore-gpu-blocklist', '--no-sandbox'];
 
 export async function launch({headless = true} = {}) {
   await buildOnce();
@@ -20,8 +16,7 @@ export async function launch({headless = true} = {}) {
   const browser = await puppeteer.launch({
     headless,
     args: GL_FLAGS,
-    // The full suite under SwiftShader can take a while; don't let CDP time out.
-    protocolTimeout: 600000,
+    protocolTimeout: 120000,
   });
   const page = await browser.newPage();
   const consoleErrors = [];

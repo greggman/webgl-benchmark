@@ -40,8 +40,12 @@ and upload paths.
 | `texImageFromDOM` | repeated upload from a decoded `ImageBitmap` |
 | `readPixelsSync` | synchronous 1×1 `readPixels()` round-trips |
 | `syncRoundTrip` | `getError()`/`getParameter()` flush+wait cost |
+| `createDeleteBuffers` | allocate + fill + delete a 64 KiB buffer, per op |
+| `createDeleteTextures` | allocate + fill + delete a 128×128 texture, per op |
 
-Benches marked *(ext)* auto-skip when the required extension is missing.
+Benches marked *(ext)* auto-skip when the required extension is missing. The
+`createDelete*` benches stress the GPU process's memory **allocation/deallocation**
+path — useful for surfacing GPU-process changes that pure call-issue benches can't.
 
 ## How it works
 
@@ -51,23 +55,28 @@ measure**:
 - **warmup** runs a few frames so the implementation can lazily compile shaders,
   link programs, and allocate buffers/textures (those timings are discarded).
 - **calibrate** grows a per-frame operation `count` until issuing one frame costs a
-  modest amount of CPU time — sizing the work to the host so the measurement is well
-  above the clock's resolution.
-- **measure** runs several short windows and reports the **median** window's
-  operations/second, computed as *ops ÷ wall-clock time* while keeping the pipe full.
-  The first window is dropped as settle time, and each result reports **Noise** (the
-  coefficient of variation across the kept windows) so you can see how stable a
-  number is.
+  modest amount of CPU time — sizing the work to the host.
+- **measure** keeps the GPU pipe full (a few frames in flight) and runs several
+  short **wall-clock windows**, reporting the **median** window's operations/second
+  as *ops ÷ wall time, with the work drained (fences) inside the window*. The first
+  window is dropped as settle time, and each result reports **Noise** (coefficient of
+  variation across the kept windows) and the **time** it took to run.
 
-> **We measure sustained speed, not drain latency.** Each window keeps the GPU pipe
-> full — the standard **frames-in-flight** pattern: at most a few frames are queued
-> ahead of the GPU (backpressure via `fenceSync`/`clientWaitSync`), and we never
-> drain mid-window. Because the pipe stays full, the rate reflects sustained
-> throughput rather than per-frame start-and-stop latency — like timing a car's top
-> speed, not a standing start through to a full stop. Draining every frame (e.g. with
-> `readPixels` or `finish()`) would measure the wrong thing, so we don't. There are
-> also deliberately **no GPU timer queries** (`EXT_disjoint_timer_query_webgl2`):
-> they're unreliable across implementations and measure drain time, not throughput.
+> **We measure GPU-process throughput, not just call-issue cost.** A command takes
+> nanoseconds to *issue* in JavaScript, but it's then sent to the GPU process and
+> worked on there — uploading, updating a UBO, allocating or freeing memory. A
+> benchmark that times only the JS call is blind to that, so two builds of the same
+> implementation can score identically even when one's GPU process is slower. We
+> therefore include the GPU completion: the wall-clock window counts the time for the
+> issued work to actually drain through the pipe. The throughput tracks how fast the
+> implementation *completes* the work.
+>
+> Tradeoff: for benches whose per-frame work is far below a display-refresh interval,
+> the rAF-paced fence polling caps the rate and adds some vsync quantization. For the
+> GPU-bound benches this matters for (uploads, UBO updates, alloc/free), the GPU
+> completion dominates and the number is meaningful. This makes it suitable for
+> A/B comparisons of an implementation: run before a change, run after, compare —
+> the alloc/upload/UBO benches move when the GPU-process cost moves.
 
 Each benchmark's operations/second is normalized against a baked-in reference
 baseline (`src/ui/baseline.json`) so a score near **1000 matches the reference
@@ -111,6 +120,7 @@ scores meaningful for your setup.
 ## Notes
 
 - Requires a browser with **WebGL2** (`navigator.gpu` is *not* used).
-- CI runs the Puppeteer smoke test under SwiftShader, which validates the API path
-  (correctness, not perf). `WEBGL_multi_draw` may be absent there, so that bench
-  reports as skipped rather than failing.
+- CI runs the Puppeteer smoke test on the runner's **real GPU** (macOS runners have
+  one). It does not use SwiftShader — that's deprecated in Chrome and far too slow
+  per frame for the drain-between-frames runner. The test checks each benchmark
+  runs and produces a finite positive score, not its perf.

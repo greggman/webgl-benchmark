@@ -31,7 +31,7 @@ test('every benchmark runs in fast mode and produces a sane result', async () =>
   );
 
   for (const r of run.results) {
-    if (r.status === 'skipped') continue; // unsupported under SwiftShader is fine
+    if (r.status === 'skipped') continue; // missing extension (e.g. multi_draw) is fine
     assert.equal(
       r.status,
       'ok',

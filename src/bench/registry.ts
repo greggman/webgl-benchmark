@@ -23,6 +23,10 @@ import {
 import {makeTexImageFromDOMBench} from './benchmarks/texImageFromDOM.js';
 import {makeReadPixelsSyncBench} from './benchmarks/readPixelsSync.js';
 import {makeSyncRoundTripBench} from './benchmarks/syncRoundTrip.js';
+import {
+  makeCreateDeleteBuffersBench,
+  makeCreateDeleteTexturesBench,
+} from './benchmarks/createDelete.js';
 
 // Benchmarks grouped for display; order here is the order shown and run.
 export interface BenchGroup {
@@ -70,6 +74,10 @@ export const GROUPS: BenchGroup[] = [
   {
     title: 'Synchronous round-trips',
     factories: [makeReadPixelsSyncBench, makeSyncRoundTripBench],
+  },
+  {
+    title: 'Resource lifetime (alloc/free)',
+    factories: [makeCreateDeleteBuffersBench, makeCreateDeleteTexturesBench],
   },
 ];
 

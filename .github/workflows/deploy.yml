@@ -17,8 +17,9 @@ concurrency:
 
 jobs:
   build:
-    # macOS runners always have a GPU; good for WebGL. Tests also pass under
-    # SwiftShader, so ubuntu-latest works too if you prefer cheaper runners.
+    # macOS runners have a real GPU, which the smoke test needs — it runs on the
+    # host GPU, not SwiftShader (deprecated in Chrome, and too slow per frame for the
+    # drain-between-frames runner). Don't switch to a GPU-less runner.
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4

@@ -31,9 +31,10 @@ export interface BenchResult {
   reason?: string; // why skipped / error message
   count: number; // ops per frame chosen by calibration
   frames: number; // total frames measured
-  opsPerSec: number; // median window throughput (ops / wall-clock, pipe kept full)
+  opsPerSec: number; // median window throughput (ops / CPU issue time)
   cpuMsPerFrame: number; // median per-frame CPU issue time (informational)
   noise: number; // coefficient of variation across kept windows
+  durationMs: number; // total wall-clock time spent on this benchmark (all phases)
   score: number; // normalized vs baseline (filled in by scoring)
 }
 
@@ -61,25 +62,24 @@ export interface RunnerConfig {
   minCount: number; // smallest per-frame op count
   maxCount: number; // largest per-frame op count
   measureWindows: number; // measurement windows (first is dropped as settle)
-  measureWindowMs: number; // wall-clock duration of each window
+  measureWindowMs: number; // wall-clock duration of each window (incl. GPU completion)
 }
 
 export const DEFAULT_CONFIG: RunnerConfig = {
   warmupFrames: 10,
-  calibrateTargetMs: 8,
+  calibrateTargetMs: 5,
   minCount: 16,
   maxCount: 1 << 18, // 256k
-  measureWindows: 6, // median of 5 after dropping the first
-  measureWindowMs: 120,
+  measureWindows: 5, // median of 4 after dropping the first
+  measureWindowMs: 300, // longer window → vsync quantization is a smaller fraction
 };
 
-// Fast profile for CI/Puppeteer: small counts and short windows so the whole
-// suite finishes quickly even under software rendering (SwiftShader).
+// Fast profile for CI/Puppeteer.
 export const FAST_CONFIG: RunnerConfig = {
   warmupFrames: 3,
-  calibrateTargetMs: 3,
+  calibrateTargetMs: 2,
   minCount: 8,
   maxCount: 1 << 13,
   measureWindows: 3,
-  measureWindowMs: 40,
+  measureWindowMs: 80,
 };
