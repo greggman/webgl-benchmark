@@ -25,7 +25,7 @@ import {checkError} from '../gl/context.js';
 // How many frames may be in flight at once before we wait on the oldest fence.
 // Keeping a few queued avoids a per-frame task yield (which would be rAF-paced and
 // make the CPU bursty); the wait is excluded from the measurement either way.
-const IN_FLIGHT = 3;
+const IN_FLIGHT = 5;
 // Safety cap so a stalled clock can never loop forever within one window.
 const MAX_WINDOW_FRAMES = 200_000;
 
@@ -61,20 +61,16 @@ function nextFrame(): Promise<void> {
 }
 
 // Insert a fence marking "the GPU has finished everything issued so far".
-function fence(gl: WebGL2RenderingContext): WebGLSync | null {
-  return gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+function fence(gl: WebGL2RenderingContext): WebGLSync {
+  return gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
 }
 
 // Wait until a fence is signalled, yielding to rAF between polls. Backpressure /
 // settling only — never timed, so it can't affect the measured throughput.
 async function awaitFence(
   gl: WebGL2RenderingContext,
-  sync: WebGLSync | null,
+  sync: WebGLSync,
 ): Promise<void> {
-  if (!sync) {
-    await nextFrame();
-    return;
-  }
   for (;;) {
     const status = gl.clientWaitSync(sync, gl.SYNC_FLUSH_COMMANDS_BIT, 0);
     if (status !== gl.TIMEOUT_EXPIRED) {
@@ -159,7 +155,7 @@ async function measureWindow(
   windowMs: number,
   shouldCancel?: () => boolean,
 ): Promise<WindowResult> {
-  const inFlight: Array<WebGLSync | null> = [];
+  const inFlight: Array<WebGLSync> = [];
   let frames = 0;
   const start = now();
   do {
